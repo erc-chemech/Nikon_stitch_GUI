@@ -1,4 +1,20 @@
 function f1=stitch(flag,flag2)
+%% DESCRIPTION
+% This fcn contains the code for the main stitching process.
+%
+%% INPUT VARIABLES
+% flag: toggle variable determining whether or not to perform flat-field
+%       corrections and distortion corrections (1=true and 0=false)
+% 
+% flag2: toggle variable determining whether or not to bin the intensity
+% scatter points into a 2d array, based on the meshgrid fcn (1=true and
+%       0=false)
+% 
+%% OUTPUT VARIABLES
+% f1: the figure handle in which the stitching results will be shown
+% 
+%%
+
 % Get handles structure
 handles=guidata(findall(0,'tag','Nikon_stitch'));
 
@@ -11,6 +27,7 @@ else
     flag3=0;
 end
 
+% Figure formatting
 f1=my_fig(flag+flag2+1+flag3);
 set(f1.f,'color','k');
 set(f1.s1,'xcolor','w','ycolor','w','zcolor','w');
@@ -26,16 +43,13 @@ end
 disp([newline,newline,'>>>>>>STITCHING INITIATED<<<<<<']);
 
 handles.accum_coord=[];
-Nikon_xpos=handles.Nikon_metadata(:,3);
-Nikon_ypos=handles.Nikon_metadata(:,4);
 offset=str2double(handles.edit1.String);%intensity offset
 T1=str2double(handles.thresh.String);%threshold value from IH map
 T2=str2double(handles.post_thresh.String);%threshold value from IH map
 handles.din.IH.ii1=find(handles.din.IH.IH(:)<T1);%pxs indices defined by T1
 handles.din.IH.ii2=find(handles.din.IH.IH(:)<T2);%pxs indices defined by T2
 I_table=handles.uitable1.Data;%extract image files
-ii=find(cell2mat(I_table(:,end))==true);
-% w=str2double(handles.bin_width.String);%bin size in microns
+ii=find(cell2mat(I_table(:,end))==true);%index of images to stitch from table
 pathname=I_table(ii,1);%extract out pathnames of imported images
 filename=I_table(ii,2);%extract out filenames of imported images
 n=size(filename,1);%number of files
@@ -61,21 +75,13 @@ for dum=1:n
     z1=plane_initial(:);%intensity values
     
     %Perform distortion correction
-    if flag==0%do not remove xy distortion
-    elseif flag==1%correct for xy distortions
-        dx=handles.din.D.dx.*res;%x dir distortion
-        dy=handles.din.D.dy.*res;%y dir distortion
-        x=x-dx;
-        y=y-dy;
-    end 
+    [x,y]=rm_distort(handles,x,y,flag,res)
     
     % turn 2d array into column array
-    x=x(:);
-    y=y(:);
-    z1=z1(:);
+    x=x(:); y=y(:); z1=z1(:);
     
     % Performing binning of current image
-    w=ceil(res);
+    w=ceil(res);% bin based on the resolution of the image
     [cI0,X,Y]=coord2image(x,y,z1,w,'mean');
     
     % Get recorded x and y positions of image
@@ -88,15 +94,7 @@ for dum=1:n
         
         % Extract previous image
         pI0=prev.plane;
-        
-        % Ensure that the current and previous images have the same size
-%         size1=[size(pI0,1) size(cI0,1)];
-%         size2=[size(pI0,2) size(cI0,2)];
-%         pI=zeros([max(size1) max(size2)]);
-%         pI(1:size(pI0,1),1:size(pI0,2))=pI0;
-%         cI=zeros([max(size1) max(size2)]);
-%         cI(1:size(cI0,1),1:size(cI0,2))=cI0;
-%         
+
         % Get recorded x and y positions of the previous image
         xposp=prev.xpos0;
         yposp=prev.ypos0;
@@ -104,58 +102,6 @@ for dum=1:n
         % Determine the relative distance in bin units
         xo=round((xposc-xposp)/w);
         yo=round((yposc-yposp)/w);
-%         
-%         % Determine overlap regions between the previous and current images
-%         if xo>=0&&yo>=0
-%             x_overlap=1:(size(cI,2)-xo)-1;
-%             y_overlap=1:(size(cI,1)-yo)-1;
-%             x_overlap0=(1+xo):size(pI,2);
-%             y_overlap0=(1+yo):size(pI,1);
-%             ff=1
-%         elseif xo>=0&&yo<=0
-%             x_overlap=1:(size(cI,2)-xo)-1;
-%             y_overlap=(1-yo):size(cI,1);
-%             x_overlap0=(1+xo):size(pI,2);
-%             y_overlap0=1:(size(pI,1)+yo)-1;
-%             ff=2
-%         elseif xo<=0&&yo>=0
-%             x_overlap=(1-xo):size(cI,2);
-%             y_overlap=1:(size(cI,1)-yo)-1;
-%             x_overlap0=1:(size(pI,2)+xo)-1;
-%             y_overlap0=(1+yo):size(pI,1);
-%             ff=3
-%         elseif xo<=0&&yo<=0
-%             x_overlap=(1-xo):size(cI,2);
-%             y_overlap=(1-yo):size(cI,1);
-%             x_overlap0=1:(size(pI,2)+xo)-1;
-%             y_overlap0=1:(size(pI,1)+yo)-1;
-%             ff=4
-%         end
-%         
-%         % Current image overlap area
-%         overlap=cI(y_overlap,x_overlap);
-%         % Previous image overlap area
-%         overlap0=pI(y_overlap0,x_overlap0);
-%         
-%         W=who;
-%         out_var(W{:});
-%     
-%         % Replace any potential infinity or nan elements with 0
-%         ii3a=find(isinf(overlap)|isnan(overlap));
-%         ii3b=find(isinf(overlap0)|isnan(overlap0));
-%         if ~isempty(ii3a)
-%             overlap(ii3a)=0;
-%         end
-%         if ~isempty(ii3b)
-%             overlap0(ii3b)=0;
-%         end
-%         
-%         % Center intensities based on mean value
-%         dyn=overlap;
-%         static=overlap0;
-        
-
-
 
         % Everything is relative to the 1st (previous) image
         outline1=[1 1 size(pI0,2)-1 size(pI0,1)-1];
@@ -202,8 +148,6 @@ for dum=1:n
         if c2>size(crrn,2); c2=size(crrn,2); end
         
         crrn2=zeros(size(crrn));
-        
-        %                                                                           Maybe use column vectors instead and use ind2sub to get peaks
         crrn2(r1:r2,c1:c2)=crrn(r1:r2,c1:c2);
         
         [ypeak, xpeak] = find(crrn2==max(crrn2(:)));%find the maximum
@@ -264,13 +208,7 @@ for dum=1:n
     z1=plane_ffc(:);%intensity values
     
     %Perform distortion correction (again)
-    if flag==0%do not remove xy distortion
-    elseif flag==1%correct for xy distortions
-        dx=handles.din.D.dx.*res;%x dir distortion
-        dy=handles.din.D.dy.*res;%y dir distortion
-        x=x-dx;
-        y=y-dy;
-    end 
+    [x,y]=rm_distort(handles,x,y,flag,res)
     
     % Perform stitching
     x=x+xpos;
@@ -308,7 +246,6 @@ for dum=1:n
     % if step stitching is turned one, plot previous and current image
     % stitching
     if handles.step_stitch.Value==1&&dum>1
-        In0=['I',num2str(dum-1)];
         cla(handles.axes3);
         scatter3(handles.axes3,handles.accum_coord(:,1),...
             handles.accum_coord(:,2),handles.accum_coord(:,3),...
@@ -352,3 +289,13 @@ elseif flag2==0
     
 end
 guidata(handles.Nikon_stitch,handles);
+
+function [x,y]=rm_distort(handles,x0,y0,flag,res)
+    if flag==0%do not remove xy distortion
+    elseif flag==1%correct for xy distortions
+        dx=handles.din.D.dx.*res;%x dir distortion
+        dy=handles.din.D.dy.*res;%y dir distortion
+        x=x0-dx;
+        y=y0-dy;
+    end
+end
