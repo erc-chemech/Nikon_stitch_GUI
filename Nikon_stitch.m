@@ -24,7 +24,7 @@ function varargout = Nikon_stitch(varargin)
 
 % Edit the above text to modify the response to help Nikon_stitch
 
-% Last Modified by GUIDE v2.5 26-Apr-2018 17:41:08
+% Last Modified by GUIDE v2.5 02-May-2018 14:37:10
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -62,6 +62,10 @@ handles.din.IHpathname=[];
 handles.uitable2.ColumnName=handles.uitable2.ColumnName(1:5);
 handles.uitable2.Data=[];
 set(handles.uitable1,'data',[]);
+handles.corr_bin_scatter.f=[];
+handles.corr_bin_surf.f=[];
+handles.corr_no_bin.f=[];
+addpath('format plot fcns/');
 
 % Update handles structure
 guidata(hObject, handles);
@@ -258,28 +262,33 @@ function corr_Callback(hObject, eventdata, handles)
 f1=stitch(1,0);
 f1.f.Name='Flat field and distortion corrected stitch';
 handles=guidata(handles.Nikon_stitch);
-n=size(handles.uitable1.Data,1);%number of files
-disp(['Stitching ',num2str(n),' images (corrected)']);
-handles.status.String=['Stitching ',num2str(n),' images'];
-for dum=1:n
-    In=['I',num2str(dum)];
-    coord=handles.coord.(In);%extract out the coordinates
-    scatter3(f1.s1,coord(:,1),coord(:,2),coord(:,3),'filled',...
-        'cdata',coord(:,3),'sizedata',20,'marker','s');
-    disp(['stitched image ',num2str(dum)]);
-    handles.status.String=['stitched image ',num2str(dum)];
-    drawnow;pause(2);
-end
-if handles.rot.Value==1
-    view(f1.s1,[90 90]);
-    set(f1.s1,'yaxislocation','left');
-end
+ii=find(cell2mat(handles.uitable1.Data(:,12))==true);
+% n=size(handles.uitable1.Data,1);%number of files
+% disp(['Stitching ',num2str(numel(ii)),' images (corrected)']);
+% handles.status.String=['Stitching ',num2str(n),' images'];
+% for dum=1:numel(ii)
+%     In=['I',num2str(dum)];
+%     coord=handles.coord.(In);%extract out the coordinates
+%     scatter3(f1.s1,coord(:,1),coord(:,2),coord(:,3),'filled',...
+%         'cdata',coord(:,3),'sizedata',10,'marker','s');
+%     disp(['stitched image ',num2str(dum)]);
+%     handles.status.String=['stitched image ',num2str(dum)];
+%     drawnow;pause(2);
+% end
+scatter3(f1.s1,handles.accum_coord(:,1),handles.accum_coord(:,2),...
+    handles.accum_coord(:,3),'filled','cdata',handles.accum_coord(:,3),...
+    'sizedata',10,'marker','s');
 set(f1.s1,'clim',[0 2e3],'dataaspectratio',[1 1 10],'zlim',[0 5e3]);
 disp('Raw stitching complete');
 handles.status.String='Corr stitching complete';
+handles.corr_no_bin=f1;%store the figure handle structure
+guidata(handles.Nikon_stitch,handles);%update handle structure
+rot_Callback(handles.rot,1,handles);%control plotting behavior details
+
 
 function f1=stitch(flag,flag2)
-disp([newline,newline,'>>>>>>STITCHING INITIATED<<<<<<']);
+% Get handles structure
+handles=guidata(findall(0,'tag','Nikon_stitch'));
 
 % Flag controls on determining what plots to appear on what figure windows
 if flag2==1
@@ -289,15 +298,21 @@ elseif flag2==2
 else
     flag3=0;
 end
-f1=my_fig(flag+flag2+1+flag3,{[1 1 1]});
+
+f1=my_fig(flag+flag2+1+flag3);
 set(f1.f,'color','k');
 set(f1.s1,'xcolor','w','ycolor','w','zcolor','w');
 axis(f1.s1,'image');
-xylabels(f1.s1,['x (\mum)'],['y (\mum)']);
-zlabel(f1.s1,['z (\mum)']);
+xylabels(f1.s1,'x (\mum)','y (\mum)');
+zlabel(f1.s1,'z (\mum)');
 
-% Get handles structure
-handles=guidata(findall(0,'tag','Nikon_stitch'));
+% Do not run this function if the "Run stitch" radio dial is turned off
+if handles.run_stitch.Value==0
+    return
+end
+
+disp([newline,newline,'>>>>>>STITCHING INITIATED<<<<<<']);
+
 handles.accum_coord=[];
 Nikon_xpos=handles.Nikon_metadata(:,3);
 Nikon_ypos=handles.Nikon_metadata(:,4);
@@ -308,7 +323,7 @@ handles.din.IH.ii1=find(handles.din.IH.IH(:)<T1);%pxs indices defined by T1
 handles.din.IH.ii2=find(handles.din.IH.IH(:)<T2);%pxs indices defined by T2
 I_table=handles.uitable1.Data;%extract image files
 ii=find(cell2mat(I_table(:,end))==true);
-w=str2double(handles.bin_width.String);%bin size in microns
+% w=str2double(handles.bin_width.String);%bin size in microns
 pathname=I_table(ii,1);%extract out pathnames of imported images
 filename=I_table(ii,2);%extract out filenames of imported images
 n=size(filename,1);%number of files
@@ -318,20 +333,20 @@ for dum=1:n
         'skip',1,'silence',1);
     % Perform offset and flatfield correction
     if flag==0%no flat field correction
-        plane=I.tiff_stack-offset;
-        plane0=plane;
+        plane_initial=I.tiff_stack-offset;
+        plane_ffc=plane_initial;
     elseif flag==1%with flat field correction
-        plane=(I.tiff_stack-offset)./handles.din.IH.IH;
-        plane0=plane;
-        plane(handles.din.IH.ii1)=0;
+        plane_initial=(I.tiff_stack-offset)./handles.din.IH.IH;
+        plane_ffc=plane_initial;
+        plane_initial(handles.din.IH.ii1)=0;
     end
     
     % convert px coord to cartesian coord
     res=I.info.UnknownTags(2).Value;%resolution um/px
-    [x,y]=meshgrid(1:size(plane,2),1:size(plane,1));
+    [x,y]=meshgrid(1:size(plane_initial,2),1:size(plane_initial,1));
     x=x.*res;%convert to real position in um
     y=y.*res;
-    z1=plane(:);%intensity values
+    z1=plane_initial(:);%intensity values
     
     %Perform distortion correction
     if flag==0%do not remove xy distortion
@@ -342,17 +357,16 @@ for dum=1:n
         y=y-dy;
     end 
     
-    % turn 2d array into scalar
+    % turn 2d array into column array
     x=x(:);
     y=y(:);
     z1=z1(:);
     
     % Performing binning of current image
+    w=ceil(res);
     [cI0,X,Y]=coord2image(x,y,z1,w,'mean');
     
     % Get recorded x and y positions of image
-%     xposc=I.info.UnknownTags(5).Value(1);% in um
-%     yposc=I.info.UnknownTags(5).Value(2);% in um
     xposc=handles.uitable1.Data{dum,3};% in um
     yposc=handles.uitable1.Data{dum,4};% in um
     
@@ -364,13 +378,13 @@ for dum=1:n
         pI0=prev.plane;
         
         % Ensure that the current and previous images have the same size
-        size1=[size(pI0,1) size(cI0,1)];
-        size2=[size(pI0,2) size(cI0,2)];
-        pI=zeros([max(size1) max(size2)]);
-        pI(1:size(pI0,1),1:size(pI0,2))=pI0;
-        cI=zeros([max(size1) max(size2)]);
-        cI(1:size(cI0,1),1:size(cI0,2))=cI0;
-        
+%         size1=[size(pI0,1) size(cI0,1)];
+%         size2=[size(pI0,2) size(cI0,2)];
+%         pI=zeros([max(size1) max(size2)]);
+%         pI(1:size(pI0,1),1:size(pI0,2))=pI0;
+%         cI=zeros([max(size1) max(size2)]);
+%         cI(1:size(cI0,1),1:size(cI0,2))=cI0;
+%         
         % Get recorded x and y positions of the previous image
         xposp=prev.xpos0;
         yposp=prev.ypos0;
@@ -378,64 +392,88 @@ for dum=1:n
         % Determine the relative distance in bin units
         xo=round((xposc-xposp)/w);
         yo=round((yposc-yposp)/w);
-        
-        % Determine overlap regions between the previous and current images
-        if xo>=0&&yo>=0
-            x_overlap=1:(size(cI,2)-xo)-1;
-            y_overlap=1:(size(cI,1)-yo)-1;
-            x_overlap0=(1+xo):size(pI,2);
-            y_overlap0=(1+yo):size(pI,1);
-            ff=1
-            cx=1;
-            cy=1;
-        elseif xo>=0&&yo<=0
-            x_overlap=1:(size(cI,2)-xo)-1;
-            y_overlap=(1-yo):size(cI,1);
-            x_overlap0=(1+xo):size(pI,2);
-            y_overlap0=1:(size(pI,1)+yo)-1;
-            ff=2
-            cx=-1;
-            cy=-1;
-        elseif xo<=0&&yo>=0
-            x_overlap=(1-xo):size(cI,2);
-            y_overlap=1:(size(cI,1)-yo)-1;
-            x_overlap0=1:(size(pI,2)+xo)-1;
-            y_overlap0=(1+yo):size(pI,1);
-            ff=3
-            cx=1;
-            cy=1;
-        elseif xo<=0&&yo<=0
-            x_overlap=(1-xo):size(cI,2);
-            y_overlap=(1-yo):size(cI,1);
-            x_overlap0=1:(size(pI,2)+xo)-1;
-            y_overlap0=1:(size(pI,1)+yo)-1;
-            ff=4
-            cx=-1;
-            cy=-1;
-        end
-        
-        % Current image overlap area
-        overlap=cI(y_overlap,x_overlap);
-        % Previous image overlap area
-        overlap0=pI(y_overlap0,x_overlap0);
-        
-        % Replace any potential infinity or nan elements with 0
-        ii3a=find(isinf(overlap)|isnan(overlap));
-        ii3b=find(isinf(overlap0)|isnan(overlap0));
-        if ~isempty(ii3a)
-            overlap(ii3a)=0;
-        end
-        if ~isempty(ii3b)
-            overlap0(ii3b)=0;
-        end
-        
-        % Center intensities based on mean value
-        dyn=overlap-mean(overlap(:));
-        static=overlap0-mean(overlap0(:));
+%         
+%         % Determine overlap regions between the previous and current images
+%         if xo>=0&&yo>=0
+%             x_overlap=1:(size(cI,2)-xo)-1;
+%             y_overlap=1:(size(cI,1)-yo)-1;
+%             x_overlap0=(1+xo):size(pI,2);
+%             y_overlap0=(1+yo):size(pI,1);
+%             ff=1
+%         elseif xo>=0&&yo<=0
+%             x_overlap=1:(size(cI,2)-xo)-1;
+%             y_overlap=(1-yo):size(cI,1);
+%             x_overlap0=(1+xo):size(pI,2);
+%             y_overlap0=1:(size(pI,1)+yo)-1;
+%             ff=2
+%         elseif xo<=0&&yo>=0
+%             x_overlap=(1-xo):size(cI,2);
+%             y_overlap=1:(size(cI,1)-yo)-1;
+%             x_overlap0=1:(size(pI,2)+xo)-1;
+%             y_overlap0=(1+yo):size(pI,1);
+%             ff=3
+%         elseif xo<=0&&yo<=0
+%             x_overlap=(1-xo):size(cI,2);
+%             y_overlap=(1-yo):size(cI,1);
+%             x_overlap0=1:(size(pI,2)+xo)-1;
+%             y_overlap0=1:(size(pI,1)+yo)-1;
+%             ff=4
+%         end
+%         
+%         % Current image overlap area
+%         overlap=cI(y_overlap,x_overlap);
+%         % Previous image overlap area
+%         overlap0=pI(y_overlap0,x_overlap0);
+%         
+%         W=who;
+%         out_var(W{:});
+%     
+%         % Replace any potential infinity or nan elements with 0
+%         ii3a=find(isinf(overlap)|isnan(overlap));
+%         ii3b=find(isinf(overlap0)|isnan(overlap0));
+%         if ~isempty(ii3a)
+%             overlap(ii3a)=0;
+%         end
+%         if ~isempty(ii3b)
+%             overlap0(ii3b)=0;
+%         end
+%         
+%         % Center intensities based on mean value
 %         dyn=overlap;
 %         static=overlap0;
         
+
+
+
+        % Everything is relative to the 1st (previous) image
+        outline1=[1 1 size(pI0,2)-1 size(pI0,1)-1];
+        
+        % Position the current image (2nd image) relative to the
+        % coordinates of the previous image (1st image).
+        outline2=[1+xo 1+yo size(cI0,2)-1 size(cI0,1)-1];
+        
+        % Define overlap outline
+        a1=max(outline1(1),outline2(1));
+        a2=min(outline1(1)+outline1(3),outline2(1)+outline2(3));
+        a3=max(outline1(2),outline2(2));
+        a4=min(outline1(2)+outline1(4),outline2(2)+outline2(4));
+        overlap_outline=[a1 a3 a2-a1 a4-a3];
+        
+        % Subarea of the previous image (1st image) corresponding to the
+        % overlap region
+        overlap1=pI0(...
+            overlap_outline(2):overlap_outline(2)+overlap_outline(4),...
+            overlap_outline(1):overlap_outline(1)+overlap_outline(3));
+        
+        % Subarea of the current image (2nd iamge) corresponding to the
+        % overlap region
+        overlap2=cI0(...
+            overlap_outline(2)-yo:overlap_outline(2)-yo+overlap_outline(4),...
+            overlap_outline(1)-xo:overlap_outline(1)-xo+overlap_outline(3));
+        
         % Perform 2D cross correlation (ZNCC)
+        static=overlap1;
+        dyn=overlap2;
         crrn=xcorr2(dyn,static);
         
         % Determine local region in crrn that is relevant (as defined by
@@ -459,8 +497,8 @@ for dum=1:n
         [ypeak, xpeak] = find(crrn2==max(crrn2(:)));%find the maximum
         
         % Calculate the additional offset
-        yoffset=-(mean(ypeak)-size(overlap,1));
-        xoffset=-(mean(xpeak)-size(overlap,2));
+        yoffset=-(mean(ypeak)-size(overlap2,1));
+        xoffset=-(mean(xpeak)-size(overlap2,2));
         
         % Determine the adjusted xpos and ypos
         xpos=(xo+xoffset)*w+prev.xpos;
@@ -508,10 +546,19 @@ for dum=1:n
     
     % reimport the original x y z coodinates and apply post threshold value
     % (defined by IH, flat field correction map)
-    [x,y]=meshgrid(1:size(plane,2),1:size(plane,1));
+    [x,y]=meshgrid(1:size(plane_ffc,2),1:size(plane_ffc,1));
     x=x.*res;%convert to real position in um
     y=y.*res;
-    z1=plane0(:);%intensity values
+    z1=plane_ffc(:);%intensity values
+    
+    %Perform distortion correction (again)
+    if flag==0%do not remove xy distortion
+    elseif flag==1%correct for xy distortions
+        dx=handles.din.D.dx.*res;%x dir distortion
+        dy=handles.din.D.dy.*res;%y dir distortion
+        x=x-dx;
+        y=y-dy;
+    end 
     
     % Perform stitching
     x=x+xpos;
@@ -524,7 +571,7 @@ for dum=1:n
     y=y(ii2);
     z1=z1(ii2);
     
-    if flag==0
+    if flag==0||flag2==0
         handles.coord.(In)=[x(:) y(:) z1];
     end
     
@@ -538,12 +585,22 @@ for dum=1:n
     prev.y=y;
     prev.z1=z1;
     
+    
+    % Update xpos and ypos on table
+    handles.uitable1.Data{dum,3}=xpos;
+    handles.uitable1.Data{dum,4}=ypos;
+              
+    %accumulate all of the scatter3 coordinates
+    handles.accum_coord=[handles.accum_coord;x y z1];
+    
     % if step stitching is turned one, plot previous and current image
     % stitching
     if handles.step_stitch.Value==1&&dum>1
         In0=['I',num2str(dum-1)];
         cla(handles.axes3);
-        scatter3(handles.axes3,x(:),y(:),z1(:),'filled','cdata',z1(:),...
+        scatter3(handles.axes3,handles.accum_coord(:,1),...
+            handles.accum_coord(:,2),handles.accum_coord(:,3),...
+            'filled','cdata',handles.accum_coord(:,3),...
             'sizedata',3);
         hold(handles.axes3,'on');
         scatter3(handles.axes3,prev.x,...
@@ -552,13 +609,6 @@ for dum=1:n
         view(handles.axes3,2);
         axis(handles.axes3,'image');
     end
-    
-    % Update xpos and ypos on table
-    handles.uitable1.Data{dum,3}=xpos;
-    handles.uitable1.Data{dum,4}=ypos;
-              
-    %accumulate all of the scatter3 coordinates
-    handles.accum_coord=[handles.accum_coord;x y z1];
     
     disp(['Stitched: ',num2str(dum),' of ',num2str(n)]);
     disp(' ');%Create a blank line in cmd windows  
@@ -586,6 +636,8 @@ if flag2>=1
         handles.raw_bin_coord=[A(ii1) B(ii1) avg(ii1)];
         handles.raw_bin_image=avg;
     end
+elseif flag2==0
+    
 end
 guidata(handles.Nikon_stitch,handles);
 
@@ -746,6 +798,7 @@ for dum=1:n
 end
 
 outline_Callback(handles.outline, 1, handles);
+outline_c_Callback(handles.outline_c, 1, handles)
 rot_Callback(handles.rot, 1, handles)
     
 % Inform user that stitching is complete
@@ -767,107 +820,33 @@ end
 
 % --- Executes on button press in rot. This fcn rotates the axes.
 function rot_Callback(hObject, eventdata, handles)
-if hObject.Value==1
-    view(handles.axes1,[90 90]);
-    view(handles.axes2,[90 90]);
-    set(handles.axes1,'yaxislocation','right');
-    set(handles.axes2,'yaxislocation','right');
-    try
-        f1.s1=findall(handles.corr_bin_scatter.f,'type','axes');
-        f2.s1=findall(handles.corr_bin_surf.f,'type','axes');
-        view(f2.s1,[90 90]);
-        view(f1.s1,[90 90]);
-        set([f1.s1 f2.s1],'units','normalized','yaxislocation','right');
-        rescale_ax2(f1.s1);
-        rescale_ax2(f2.s1);
-        
-        % Update colorbars
-        colorbar(f1.s1,'off');
-        colorbar(f2.s1,'off');
-        f1.c=colorbar(f1.s1);
-        f2.c=colorbar(f2.s1);%add colobar       
+
+% Find the relevant figures
+f1.s1=findall(handles.corr_bin_scatter.f,'type','axes');
+f2.s1=findall(handles.corr_bin_surf.f,'type','axes');
+f3.s1=findall(handles.corr_no_bin.f,'type','axes');
+
+% Collect all figure handles to be reformatted
+all_f=[f1 f2 f3];
+
+for dum=1:numel(all_f)
+    
+    % if the current axes is an empty graphics holder, skip this interation
+    if isempty(all_f(dum).s1)
+        continue
     end
-else
-    view(handles.axes1,[0 90]);
-    view(handles.axes2,[0 90]);
-    set(handles.axes1,'yaxislocation','left');
-    set(handles.axes2,'yaxislocation','left');
-    try
-        
-        f1.s1=findall(handles.corr_bin_scatter.f,'type','axes');
-        f2.s1=findall(handles.corr_bin_surf.f,'type','axes');
-        view(f2.s1,[0 90]);
-        view(f1.s1,[0 90]);
-        set([f1.s1 f2.s1],'units','normalized','yaxislocation','left');
-        rescale_ax(f1.s1);
-        rescale_ax(f2.s1);
-        
-        % Update colorbars
-        colorbar(f1.s1,'off');
-        colorbar(f2.s1,'off');
-        f1.c=colorbar(f1.s1);
-        f2.c=colorbar(f2.s1);%add colobar
-        
+    
+    colorbar(all_f(dum).s1,'off');
+    all_f(dum).c=colorbar(all_f(dum).s1);
+    
+    if hObject.Value==1
+        rescale_ax2(all_f(dum).s1)
+    else
+        rescale_ax(all_f(dum).s1)
     end
+    
+    adjust_colorbar(all_f(dum).s1,all_f(dum).c);
 end
-
-set([f1.s1 f2.s1],'units','pixels');
-if f2.s1.Position(4)/f2.s1.Position(3)>1.2
-    set(f1.c,'location','eastoutside','color','w',...
-        'tickdirection','both','units','pixels',...
-        'position',[f1.s1.Position(1)+f1.s1.Position(3)+20,...
-        f1.s1.Position(2),20 f1.s1.Position(4)]);
-    set(f2.c,'location','eastoutside','color','w',...
-        'tickdirection','both','units','pixels',...
-        'position',[f2.s1.Position(1)+f2.s1.Position(3)+20,...
-        f2.s1.Position(2),20 f2.s1.Position(4)]);
-else
-    set(f1.c,'location','southoutside','color','w',...
-        'tickdirection','both','units','pixels',...
-        'position',[f1.s1.Position(1) f1.s1.Position(2)-40,...
-        f1.s1.Position(3) 20]);
-    set(f2.c,'location','southoutside','color','w',...
-        'tickdirection','both','units','pixels',...
-        'position',[f2.s1.Position(1) f2.s1.Position(2)-40,...
-        f2.s1.Position(3) 20]);
-end
-set([f1.s1 f2.s1 f1.c f2.c],'units','normalized');
-axis([f1.s1 f2.s1],'normal');
-
-
-function [cc,hh]=select_contour(handles,L,varargin)
-if nargin==1
-    L=str2double(handles.thresh.String);
-end
-%parse varargin
-narginchk(1,inf);
-params=inputParser;
-params.CaseSensitive=false;
-params.addParameter('corr',0,@(x) isnumeric(x));
-params.parse(varargin{:});
-
-% Prevent repeated contour lines be plotted in the axes
-try
-    delete(findall(handles.axes1,'userdata','c'));
-end
-
-if params.Results.corr==0%IH contour plotting (no distortion correction)
-    [cc,hh]=contour(handles.axes1,handles.din.IH.IH,...
-        'levellist',L,...
-        'linecolor','r','userdata','c','fill','off','linewidth',2);
-elseif params.Results.corr==1%(with distortion correction)
-    IH=handles.din.IH.IH;
-    dx=handles.din.D.dx;%x dir distortion
-    dy=handles.din.D.dy;%y dir distortion
-    w=str2double(handles.bin_width.String);% bin size in um
-    [X,Y]=meshgrid(1:size(IH,2),1:size(IH,1));
-    X=X-dx+w;
-    Y=Y-dy+w;
-    [cc,hh]=contour(handles.axes1,X,Y,IH,...
-        'levellist',L,...
-        'linecolor','r','userdata','c','fill','off','linewidth',2);
-end
-drawnow;
 
 
 function thresh_Callback(hObject, eventdata, handles)
@@ -1359,34 +1338,16 @@ handles.Nikon_metadata=row;
 disp('Nikon pos restored!');
 handles.status.String='Nikon pos restored!';
 
+function out_var(varargin)
+% This function output the function variable space to the base workspace
+for dum=1:numel(varargin)
+    assignin('base',varargin{dum},evalin('caller',varargin{dum}));
+end
 
 % --- Executes on button press in step_stitch.
 function step_stitch_Callback(hObject, eventdata, handles)
-% hObject    handle to step_stitch (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Hint: get(hObject,'Value') returns toggle state of step_stitch
 
 
-% Calculate the axes position size and rescale based on the slim and ylim
-function rescale_ax(ax)
-ax.Units='pixels';
-xD=diff(ax.XLim);
-yD=diff(ax.YLim);
-ax.Position(3)=ax.Position(4).*xD./yD;
-ax.Position(4)=ax.Position(3).*yD./xD;
-ax.Units='normalized';
-ax.Position(3:4)=ax.Position(3:4)./max(ax.Position(3:4)).*0.7;
-ax.Position(2)=0.55-ax.Position(4)/2;
-ax.Position(1)=0.5-ax.Position(3)/2;
-function rescale_ax2(ax)
-ax.Units='pixels';
-xD=diff(ax.XLim);
-yD=diff(ax.YLim);
-ax.Position(3)=ax.Position(4).*yD./xD;
-ax.Position(4)=ax.Position(3).*xD./yD;
-ax.Units='normalized';
-ax.Position(3:4)=ax.Position(3:4)./max(ax.Position(3:4)).*0.7;
-ax.Position(2)=0.5-ax.Position(4)/2;
-ax.Position(1)=0.55-ax.Position(3)/2;
+
+% --- Executes on button press in run_stitch.
+function run_stitch_Callback(hObject, eventdata, handles)
