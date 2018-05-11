@@ -24,7 +24,7 @@ function varargout = Nikon_stitch(varargin)
 
 % Edit the above text to modify the response to help Nikon_stitch
 
-% Last Modified by GUIDE v2.5 02-May-2018 14:37:10
+% Last Modified by GUIDE v2.5 04-May-2018 11:47:07
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -55,6 +55,9 @@ function Nikon_stitch_OpeningFcn(hObject, eventdata, handles, varargin)
 % varargin   command line arguments to Nikon_stitch (see VARARGIN)
 
 % Choose default command line output for Nikon_stitch
+addpath('format plot fcns/');
+addpath('stitching fcns/');
+
 handles.output = hObject;
 handles.din.IH_filename=[];
 handles.din.pathname=[];
@@ -62,11 +65,13 @@ handles.din.IHpathname=[];
 handles.uitable2.ColumnName=handles.uitable2.ColumnName(1:5);
 handles.uitable2.Data=[];
 set(handles.uitable1,'data',[]);
+handles.raw_bin_scatter.f=[];
 handles.corr_bin_scatter.f=[];
 handles.corr_bin_surf.f=[];
 handles.corr_no_bin.f=[];
-addpath('format plot fcns/');
-addpath('stitching fcns/');
+[dev,flag4]=gpu_check();%check for GPU capability
+handles.din.dev=dev;
+handles.din.flag4=flag4;
 
 % Update handles structure
 guidata(hObject, handles);
@@ -88,12 +93,8 @@ varargout{1} = handles.output;
 
 % --- Executes on button press in load.
 function load_Callback(hObject, eventdata, handles)
-% hObject    handle to load (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-% Get data from table
+
 data=handles.uitable1.Data;
-offset=size(data,1);
 
 % Get image files
 handles.status.String='Select tif images to stitch...';
@@ -101,78 +102,18 @@ handles.status.String='Select tif images to stitch...';
     handles.din.pathname,'MultiSelect','on');
 handles.din.pathname=pathname;
 
-if iscell(filename)%multiple files selected
-    for dum=1:length(filename)
-        I=import_tiff_stack([pathname,filename{dum}],1,'skip',1);
-        
-        x=I.info.UnknownTags(5).Value(1);% x pos in um
-        y=I.info.UnknownTags(5).Value(2);% y pos in um
-        z=I.info.UnknownTags(5).Value(3);% z pos in um
-        res=I.info.UnknownTags(2).Value;%res in um/px
-        
-        %extract image description
-        a=I.info.ImageDescription;
-        
-        [laser,gain,ex,em,zoom]=metadata(a);
-        
-        row(dum,:)=...
-            {pathname,filename{dum},x,y,z,res,gain,laser,zoom,ex,em,true};
-    end
-else%single file selected
-    In=['I',num2str(1+offset)];
-    I=import_tiff_stack([pathname,filename],1,'skip',1);
-    
-    x=I.info.UnknownTags(5).Value(1);% x pos in um
-    y=I.info.UnknownTags(5).Value(2);% y pos in um
-    z=I.info.UnknownTags(5).Value(3);% z pos in um
-    res=I.info.UnknownTags(2).Value;%res in um/px
- 
-    %extract image description
-    a=I.info.ImageDescription;
- 
-    [laser,gain,ex,em,zoom]=metadata(a);
- 
-    row={pathname,filename,x,y,z,res,gain,laser,zoom,ex,em,true};
+% If only a single file is collected
+if ~iscell(filename)
+    filename={filename};
 end
 
+row=metadata(pathname,filename);
 data=[data;row];
 handles.uitable1.Data=data;
 handles.Nikon_metadata=row;
 
 guidata(handles.Nikon_stitch,handles);
 handles.status.String='Images imported!';
-
-function [laser,gain,ex,em,zoom]=metadata(a)
-%extract metadata
-%laser (%)
-ii=strfind(a,'Laser Power')+length('Laser Power}: ');
-b=a(ii(1):ii(1)+5);
-ii2=strfind(b,newline);
-laser=str2double(b(1:ii2-1));%power (%)
-
-%gain (%)
-ii=strfind(a,'Gain')+length('Gain}: ');
-b=a(ii(1):ii(1)+4);
-ii2=strfind(b,' ');
-gain=str2double(b(1:ii2-1));%gain
-
-%excitation
-ii=strfind(a,'ExcitationWavelength')+length('ExcitationWavelength="');
-b=a(ii(1):ii(1)+4);
-ii2=strfind(b,'"');
-ex=str2double(b(1:ii2-1));%excitation wavelength in nm
-
-%emission
-ii=strfind(a,'EmissionWavelength')+length('EmissionWavelength="');
-b=a(ii(1):ii(1)+5);
-ii2=strfind(b,'"');
-em=str2double(b(1:ii2-1));%emission wavelength in nm
-
-%nominal magnification
-ii=strfind(a,'NominalMagnification')+length('NominalMagnification="');
-b=a(ii(1):ii(1)+4);
-ii2=strfind(b,'"');
-zoom=str2double(b(1:ii2-1));%zoom
 
 % --- Executes on button press in IH.
 function IH_Callback(hObject, eventdata, handles)
@@ -261,6 +202,8 @@ function corr_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
+start=clock;
+
 % Perform stitching procedure
 f1=stitch(1,0);
 f1.f.Name='Flat field and distortion corrected stitch';
@@ -281,21 +224,18 @@ handles.corr_no_bin=f1;%store the figure handle structure
 guidata(handles.Nikon_stitch,handles);%update handle structure
 rot_Callback(handles.rot,1,handles);%control plotting behavior details
 
+finish=clock;
+disp(['Total time: ',num2str(etime(finish,start)),' s']);
+
 
 % --- Executes on button press in clear.
 function clear_Callback(hObject, eventdata, handles)
-% hObject    handle to clear (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 handles.uitable1.Data=[];
 handles.uitable2.Data=[];
 
 
 % --- Executes on button press in distort.
 function distort_Callback(hObject, eventdata, handles)
-% hObject    handle to distort (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 if isempty(handles.din.IHpathname)
     def_path=handles.din.pathname;
 else
@@ -336,10 +276,7 @@ disp('Distortion file loaded');
 
 % --- Executes on button press in bin_stitch.
 function bin_stitch_Callback(hObject, eventdata, handles)
-% hObject    handle to bin_stitch (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-tic
+start=clock;
 
 % Get metadata from uitable1
 I_table=handles.uitable1.Data;%extract image files
@@ -347,33 +284,9 @@ ii=find(cell2mat(I_table(:,end))==true);
 filename=I_table(ii,2);%extract out filenames of imported images
 n=size(filename,1);%number of files
 
-%extract out the contour line from IH map
-%contour line is drawn after distortion correction
-[~,hh]=select_contour(handles,str2double(handles.post_thresh.String),...
-    'corr',1);
-cc=hh.ContourMatrix';
-
-% Apparently there are spurious datapoints outside the range of the map.
-% They need to be removed. Otherwise, the contour outlines will not appear
-% correctly in the plots.
-iix=find(cc(:,1)<1|cc(:,1)>size(handles.din.IH.IH,2));
-iiy=find(cc(:,2)<1|cc(:,2)>size(handles.din.IH.IH,1));
-if ~isempty(iix)
-    cc(iix,:)=nan;
-end
-if ~isempty(iiy)
-    cc(iiy,:)=nan;
-end
-
-% Datapoints from the contour line are too clustered, reduce the # indices
-% in cc to help with the visibility
-freq=1:10:numel(cc(:,1));
-
-% Revert the contour line from IH map prior to distortion correction
-select_contour(handles,str2double(handles.post_thresh.String));
-
 % Obtain useful user input parameters
 w=str2double(handles.post_bin.String);%get the bin size in um
+res=handles.uitable1.Data{1,6};%resolution of images
 
 % Update the user on the status
 disp(['Stitching ',num2str(n),' images (corrected)']);
@@ -383,27 +296,66 @@ handles.status.String=['Stitching ',num2str(n),' images'];
 f1=stitch(1,1);
 f1.f.Name='Binned flat field and distortion corrected stitch';
 handles=guidata(handles.Nikon_stitch);%update handles.structure
-
 %                                                                                   Consider using rsetwrite function, so that display performance of the stitched image is better
-% Plot 3d scatter plot of the binned results
+
+% Extract coordinates and apply filtering
 coord=handles.bin_coord;%xyz coordinates to stitching results
-scatter3(f1.s1,coord(:,1),coord(:,2),coord(:,3),'filled',...
-'cdata',coord(:,3),'sizedata',3,'marker','s');
+[img,x,y]=coord2image(coord(:,1),coord(:,2),coord(:,3),w,'mean');
+img=medfilt2(img,[5 5]);
+z=img(:);
+ii=find(z<=0);
+x(ii)=nan; y(ii)=nan; z(ii)=nan;
+
+% Apply distortion correction to the IH map
+select_contour(handles,str2double(handles.post_thresh.String),'corr',1);
+
+% Determine contour lines based on the user specified contour lines drawn
+% on the inhomogeneity illumination map
+IH=handles.din.IH.IH;
+% IH=rot90(IH,2);
+% IH=flipud(IH);
+IH=imresize(IH,handles.din.size);
+kk=find(IH(:)>=str2double(handles.post_thresh.String));
+c1=zeros(size(IH));
+c1(kk)=1;
+c1b=regionprops(c1,'filledimage');
+c1=c1b.FilledImage;
+c1=imresize(c1,fliplr(handles.din.size));
+c2=bwboundaries(c1);
+c3=[];
+for dum=1:numel(c2)
+    c3=cat(1,c3,c2{dum});
+end
+c3=c3.*(max(x(:))-min(x(:)))/size(img,2);
+
+% Revert the contour line from IH map prior to distortion correction
+select_contour(handles,str2double(handles.post_thresh.String));
+
+% Datapoints from the contour line are too clustered, reduce the # indices
+% in cc to help with the visibility
+freq=1:5:numel(c3(:,1));
+
+W=who;
+out_var(W{:});
+
+% Plot 3d scatter plot of the binned results
+scatter3(f1.s1,x(:)-min(coord(:,1)),y(:)-min(coord(:,2)),z,'filled',...
+'cdata',z,'sizedata',3,'marker','s');
 
 % Create an image plot of the binned stitched results
 f2=my_fig(f1.f.Number+10,{[1 1 1]});
 set(f2.f,'color','k',...
     'Name','Binned flat field and distortion corrected stitch (image)');
-[img,~,~]=coord2image(coord(:,1),coord(:,2),coord(:,3),w,'mean');
-imagesc(f2.s1,'xdata',[min(coord(:,1)) max(coord(:,1))],...
-    'ydata',[min(coord(:,2)) max(coord(:,2))],'cdata',img);
+
+imagesc(f2.s1,'xdata',[min(coord(:,1)) max(coord(:,1))]-min(coord(:,1)),...
+    'ydata',[min(coord(:,2)) max(coord(:,2))]-min(coord(:,2)),'cdata',img);
 
 axis(f2.s1,'image');
 set(f2.s1,'clim',[0 4095/str2double(handles.post_thresh.String)],...
     'xcolor','w','ycolor','w','zcolor','w');
 set(f1.s1,'zlim',f2.s1.CLim,'clim',f2.s1.CLim,...
     'xcolor','w','ycolor','w','zcolor','w');%make axis scaling the same
-xylabels(f2.s1,['x (\mum)'],['y (\mum)']);
+xylabels(f2.s1,'x (\mum)','y (\mum)');
 
 % Store the figure handles in the GUI handle structure
 handles.corr_bin_surf=f2;
@@ -411,29 +363,34 @@ handles.corr_bin_scatter=f1;
 
 for dum=1:n
     In=['I',num2str(dum)];
-    res=handles.uitable1.Data{dum,6};
 
     % Show image outlines of final positioning in the stitched image
-    plot3(f2.s1,handles.rect.(In)(:,1),handles.rect.(In)(:,2),...
-        ones(size(handles.rect.(In)(:,1))).*f2.s1.ZLim(2),'r-');
+    plot3(f2.s1,handles.rect.(In)(:,1)-min(coord(:,1)),...
+        handles.rect.(In)(:,2)-min(coord(:,2)),...
+        ones(size(handles.rect.(In)(:,1))).*f2.s1.ZLim(2),'r-',...
+        'linewidth',2);
 
-    plot3(f1.s1,handles.rect.(In)(:,1),handles.rect.(In)(:,2),...
-        ones(size(handles.rect.(In)(:,1))).*f2.s1.ZLim(2),'r-');
+    plot3(f1.s1,handles.rect.(In)(:,1)-min(coord(:,1)),...
+        handles.rect.(In)(:,2)-min(coord(:,2)),...
+        ones(size(handles.rect.(In)(:,1))).*f2.s1.ZLim(2),'r-',...
+        'linewidth',2);
 
     % Show outline defined by the thresh of the IH map
     plot3(f2.s1,...
-        cc(freq,1).*res+min(handles.rect.(In)(:,1))+w,...
-        cc(freq,2).*res+min(handles.rect.(In)(:,2))+w,...
-        ones(size(cc(freq,1))).*f2.s1.CLim(2),'r.','markersize',4);
+        c3(freq,1)+handles.rect.(In)(1,1)-min(coord(:,1)),...
+        c3(freq,2)+handles.rect.(In)(1,2)-min(coord(:,2)),...
+        ones(size(c3(freq,1))).*f2.s1.CLim(2),'r.','markersize',4);
     plot3(f1.s1,...
-        cc(freq,1).*res+min(handles.rect.(In)(:,1))+w,...
-        cc(freq,2).*res+min(handles.rect.(In)(:,2))+w,...
-        ones(size(cc(freq,1))).*f2.s1.CLim(2),'r.','markersize',4);
+        c3(freq,1)+handles.rect.(In)(1,1)-min(coord(:,1)),...
+        c3(freq,2)+handles.rect.(In)(1,2)-min(coord(:,2)),...
+        ones(size(c3(freq,1))).*f2.s1.CLim(2),'r.','markersize',4);
 
-    text(f1.s1,min(handles.rect.(In)(:,1)),min(handles.rect.(In)(:,2)),...
+    text(f1.s1,min(handles.rect.(In)(:,1))-min(coord(:,1)),...
+        min(handles.rect.(In)(:,2))-min(coord(:,2)),...
         f1.s1.ZLim(2),num2str(dum),'color','r',...
         'horizontalalignment','center','verticalalignment','baseline');
-    text(f2.s1,min(handles.rect.(In)(:,1)),min(handles.rect.(In)(:,2)),...
+    text(f2.s1,min(handles.rect.(In)(:,1))-min(coord(:,1)),...
+        min(handles.rect.(In)(:,2))-min(coord(:,2)),...
         f1.s1.ZLim(2),num2str(dum),'color','r',...
         'horizontalalignment','center','verticalalignment','baseline');
 end
@@ -441,12 +398,16 @@ end
 outline_Callback(handles.outline, 1, handles);
 outline_c_Callback(handles.outline_c, 1, handles)
 rot_Callback(handles.rot, 1, handles)
+ii=find(z>10);
+set(f1.s1,'clim',[250 quantile(z(ii),0.95)]);
+set(f2.s1,'clim',[250 quantile(z(ii),0.95)]);
     
 % Inform user that stitching is complete
 guidata(handles.Nikon_stitch,handles);
 disp('Corrected bin stitching complete');
 handles.status.String='Corr stitching complete';
-toc
+finish=clock;
+disp(['Total time: ',num2str(etime(finish,start)),' s']);
 
 
 function bin_width_Callback(hObject, eventdata, handles)
@@ -454,7 +415,8 @@ function bin_width_Callback(hObject, eventdata, handles)
 
 % --- Executes during object creation, after setting all properties.
 function bin_width_CreateFcn(hObject, eventdata, handles)
-if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+if ispc && isequal(get(hObject,'BackgroundColor'),...
+        get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
 
@@ -479,55 +441,34 @@ for dum=1:numel(all_f)
     
     colorbar(all_f(dum).s1,'off');
     all_f(dum).c=colorbar(all_f(dum).s1);
-    
-    if hObject.Value==1
-        rescale_ax2(all_f(dum).s1)
-    else
-        rescale_ax(all_f(dum).s1)
-    end
-    
+    rescale_ax(all_f(dum).s1,hObject.Value);
     adjust_colorbar(all_f(dum).s1,all_f(dum).c);
 end
 
 
 function thresh_Callback(hObject, eventdata, handles)
-% hObject    handle to thresh (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Hints: get(hObject,'String') returns contents of thresh as text
-%        str2double(get(hObject,'String')) returns contents of thresh as a double
 select_contour(handles,str2double(handles.post_thresh.String));
 
 % --- Executes during object creation, after setting all properties.
 function thresh_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to thresh (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
-
-% Hint: edit controls usually have a white background on Windows.
-%       See ISPC and COMPUTER.
-if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+if ispc && isequal(get(hObject,'BackgroundColor'),...
+        get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
 
 
 % --- Executes on button press in raw_bin.
 function raw_bin_Callback(hObject, eventdata, handles)
-% hObject    handle to raw_bin (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
 % Get metadata from uitable1
 I_table=handles.uitable1.Data;%extract image files
 ii=find(cell2mat(I_table(:,end))==true);
-w=str2double(handles.bin_width.String);%bin size in microns
+% w=str2double(handles.bin_width.String);%bin size in microns
 pathname=I_table(ii,1);%extract out pathnames of imported images
 filename=I_table(ii,2);%extract out filenames of imported images
 n=size(filename,1);%number of files
 
 % Obtain useful user input parameters
-w=str2double(handles.bin_width.String);%get the bin size in um
+% w=str2double(handles.bin_width.String);%get the bin size in um
 
 % Perform stitching of raw images (uncorrected)
 f1=stitch(0,2);
@@ -573,9 +514,6 @@ handles.status.String='Raw stitching complete';
 
 % --- Executes on button press in yslice. Obtain results along y direction.
 function yslice_Callback(hObject, eventdata, handles)
-% hObject    handle to yslice (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 f1=my_fig(51,{[1 1 1]},'marg_w',[0.2 0.1],'marg_h',[0.2 0.15]);
 f1.f.Name='Y slice';
 s=str2double(handles.yslice_txt.String);
@@ -595,9 +533,6 @@ view(f1.s1,[0 0]);
 
 % --- Executes on button press in xslice. Obtain results along x direction.
 function xslice_Callback(hObject, eventdata, handles)
-% hObject    handle to xslice (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 f1=my_fig(50,{[1 1 1]},'marg_w',[0.2 0.1],'marg_h',[0.2 0.15]);
 f1.f.Name='X slice';
 s=str2double(handles.xslice_txt.String);
@@ -619,9 +554,6 @@ view(f1.s1,[90 0]);
 
 % --- Executes on button press in ypos_sort.
 function ypos_sort_Callback(hObject, eventdata, handles)
-% hObject    handle to ypos_sort (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 meta=handles.uitable1.Data;
 ii=find(cell2mat(meta(:,end))==true);
 ii2=find(cell2mat(meta(:,end))==false);
@@ -638,9 +570,6 @@ handles.Nikon_metadata=handles.Nikon_metadata([ii(ii3);ii2]);
 
 % --- Executes on button press in xpos_sort.
 function xpos_sort_Callback(hObject, eventdata, handles)
-% hObject    handle to xpos_sort (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 meta=handles.uitable1.Data;
 ii=find(cell2mat(meta(:,end))==true);
 ii2=find(cell2mat(meta(:,end))==false);
@@ -698,42 +627,23 @@ try
             findall(handles.raw_bin_scatter.f,'color','r','type','text'),...
             'visible','off');
     end
+catch
+    disp('Error with outline_Callback!');
 end
 rot_Callback(handles.rot, 1, handles)
 
 
 function TT_Callback(hObject, eventdata, handles)
-% hObject    handle to TT (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Hints: get(hObject,'String') returns contents of TT as text
-%        str2double(get(hObject,'String')) returns contents of TT as a double
-
 
 % --- Executes during object creation, after setting all properties.
 function TT_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to TT (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
-
-% Hint: edit controls usually have a white background on Windows.
-%       See ISPC and COMPUTER.
-if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+if ispc && isequal(get(hObject,'BackgroundColor'),...
+        get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
 
 
-
 function post_bin_Callback(hObject, eventdata, handles)
-% hObject    handle to post_bin (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Hints: get(hObject,'String') returns contents of post_bin as text
-%        str2double(get(hObject,'String')) returns contents of post_bin as a double
-%Performing binning
-
 % Notify the user that the plot is refreshing
 disp('Refreshing plot with new bin size value');
 handles.status.String='Refreshing plot';
@@ -851,35 +761,17 @@ guidata(handles.Nikon_stitch,handles);
 
 % --- Executes during object creation, after setting all properties.
 function post_bin_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to post_bin (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
 
-% Hint: edit controls usually have a white background on Windows.
-%       See ISPC and COMPUTER.
-if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+if ispc && isequal(get(hObject,'BackgroundColor'),...
+        get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
 
-
-
 function post_thresh_Callback(hObject, eventdata, handles)
-% hObject    handle to post_thresh (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Hints: get(hObject,'String') returns contents of post_thresh as text
-%        str2double(get(hObject,'String')) returns contents of post_thresh as a double
 select_contour(handles,str2double(handles.post_thresh.String));
 
 % --- Executes during object creation, after setting all properties.
 function post_thresh_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to post_thresh (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
-
-% Hint: edit controls usually have a white background on Windows.
-%       See ISPC and COMPUTER.
 if ispc && isequal(get(hObject,'BackgroundColor'), ...
         get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
@@ -917,11 +809,6 @@ handles.uitable1.Data=new;
 
 % --- Executes on button press in outline_c.
 function outline_c_Callback(hObject, eventdata, handles)
-% hObject    handle to outline_c (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Hint: get(hObject,'Value') returns toggle state of outline_c
 try
     if hObject.Value==1
         set(...
@@ -949,35 +836,22 @@ end
 
 % --- Executes on button press in default_pos.
 function default_pos_Callback(hObject, eventdata, handles)
-% hObject    handle to default_pos (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
 I_table=handles.uitable1.Data;%extract image files
 pathname=I_table(:,1);%extract out pathnames of imported images
 filename=I_table(:,2);%extract out filenames of imported images
 tf=I_table(:,end);
 
-for dum=1:length(filename)
-    I=import_tiff_stack([pathname{dum},filename{dum}],1,'skip',1);
-
-    x=I.info.UnknownTags(5).Value(1);% x pos in um
-    y=I.info.UnknownTags(5).Value(2);% y pos in um
-    z=I.info.UnknownTags(5).Value(3);% z pos in um
-    res=I.info.UnknownTags(2).Value;%res in um/px
-
-    %extract image description
-    a=I.info.ImageDescription;
-
-    [laser,gain,ex,em,zoom]=metadata(a);
-
-    row(dum,:)=...
-        {pathname{dum},filename{dum},x,y,z,res,gain,laser,zoom,ex,em,tf{dum}};    
+% If only a single file is collected
+if ~iscell(filename)
+    filename={filename};
 end
-
+row=metadata(pathname{1},filename);
+row(:,end)=tf;
 handles.uitable1.Data=row;
 handles.Nikon_metadata=row;
 disp('Nikon pos restored!');
 handles.status.String='Nikon pos restored!';
+
 
 function out_var(varargin)
 % This function output the function variable space to the base workspace
@@ -985,10 +859,16 @@ for dum=1:numel(varargin)
     assignin('base',varargin{dum},evalin('caller',varargin{dum}));
 end
 
+
 % --- Executes on button press in step_stitch.
 function step_stitch_Callback(hObject, eventdata, handles)
 
-
-
 % --- Executes on button press in run_stitch.
 function run_stitch_Callback(hObject, eventdata, handles)
+
+% --- Executes on button press in gpu.
+function gpu_Callback(hObject, eventdata, handles)
+if handles.din.flag4==0
+    hObject.Value=0;
+    disp('Cannot use GPU accerlation. Prequisites are not met.');
+end

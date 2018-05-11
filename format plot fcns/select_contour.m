@@ -23,10 +23,10 @@ elseif params.Results.corr==1%(with distortion correction)
     IH=handles.din.IH.IH;
     dx=handles.din.D.dx;%x dir distortion
     dy=handles.din.D.dy;%y dir distortion
-    w=str2double(handles.bin_width.String);% bin size in um
+%     w=str2double(handles.bin_width.String);% bin size in um
     [X,Y]=meshgrid(1:size(IH,2),1:size(IH,1));
-    X=X-dx+w;
-    Y=Y-dy+w;
+    X=X-dx;
+    Y=Y-dy;
     [cc,hh]=contour(handles.axes1,X,Y,IH,...
         'levellist',L,...
         'linecolor','r','userdata','c','fill','off','linewidth',2);
