@@ -442,7 +442,10 @@ for dum=1:numel(all_f)
     colorbar(all_f(dum).s1,'off');
     all_f(dum).c=colorbar(all_f(dum).s1);
     rescale_ax(all_f(dum).s1,hObject.Value);
+    RoughCenterAxes(all_f(dum).s1);
     adjust_colorbar(all_f(dum).s1,all_f(dum).c);
+
+    
 end
 
 
