@@ -39,7 +39,7 @@ if r>yD0/xD0
         (c.Position(1)-(ax.Position(1)+ax.Position(3)+ax.TightInset(3)));
     
     
-    % Recenter plot area with colorbar
+    % Recenter plot area with colorbar%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     % center based on width
     target=(ax.Parent.InnerPosition(3)-W)/2;
@@ -58,7 +58,7 @@ else
     set(c,'location','southoutside','color','w',...
         'tickdirection','both','units','pixels',...
         'position',[ax.Position(1),...
-        ax.OuterPosition(2)-ax.OuterPosition(2)/6,...
+        ax.OuterPosition(2)-ax.OuterPosition(2)/2,...
         ax.Position(3) 20]);
     
     % Determine position of bottom edge of the colorbar YLabel
@@ -70,7 +70,7 @@ else
         ((ax.Position(2)-ax.TightInset(2))-(c.Position(2)+c.Position(4)));
     
     
-    % Recenter plot area with colorbar
+    % Recenter plot area with colorbar%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     % center based on height
     target=(ax.Parent.InnerPosition(4)-W)/2;
@@ -86,7 +86,6 @@ else
     c.Position(1)=c.Position(1)-error_p;
     
 end
-
 
 set(ax,'units','normalized');
 set(c,'units','normalized');
