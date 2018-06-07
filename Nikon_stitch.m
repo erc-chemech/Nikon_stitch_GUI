@@ -81,7 +81,7 @@ guidata(hObject, handles);
 
 
 % --- Outputs from this function are returned to the command line.
-function varargout = Nikon_stitch_OutputFcn(hObject, eventdata, handles) 
+function varargout = Nikon_stitch_OutputFcn(hObject, eventdata, handles)  %#ok<*INUSL>
 % varargout  cell array for returning output args (see VARARGOUT);
 % hObject    handle to figure
 % eventdata  reserved - to be defined in a future version of MATLAB
@@ -92,7 +92,7 @@ varargout{1} = handles.output;
 
 
 % --- Executes on button press in load.
-function load_Callback(hObject, eventdata, handles)
+function load_Callback(hObject, eventdata, handles) %#ok<*DEFNU>
 
 data=handles.uitable1.Data;
 
@@ -210,9 +210,6 @@ f1.f.Name='Flat field and distortion corrected stitch';
 
 handles=guidata(handles.Nikon_stitch);% refresh handle structure
 
-% Find images that have been selected for the stitching process
-ii=find(cell2mat(handles.uitable1.Data(:,12))==true);
-
 % Create a scatter plot of the stitched images
 scatter3(f1.s1,handles.accum_coord(:,1),handles.accum_coord(:,2),...
     handles.accum_coord(:,3),'filled','cdata',handles.accum_coord(:,3),...
@@ -280,13 +277,13 @@ start=clock;
 
 % Get metadata from uitable1
 I_table=handles.uitable1.Data;%extract image files
-ii=find(cell2mat(I_table(:,end))==true);
+ii=cell2mat(I_table(:,end))==true;
 filename=I_table(ii,2);%extract out filenames of imported images
 n=size(filename,1);%number of files
 
 % Obtain useful user input parameters
 w=str2double(handles.post_bin.String);%get the bin size in um
-res=handles.uitable1.Data{1,6};%resolution of images
+res=handles.uitable1.Data{1,6};%#ok<NASGU> %resolution of images
 
 % Update the user on the status
 disp(['Stitching ',num2str(n),' images (corrected)']);
@@ -312,10 +309,8 @@ select_contour(handles,str2double(handles.post_thresh.String),'corr',1);
 % Determine contour lines based on the user specified contour lines drawn
 % on the inhomogeneity illumination map
 IH=handles.din.IH.IH;
-% IH=rot90(IH,2);
-% IH=flipud(IH);
 IH=imresize(IH,handles.din.size);
-kk=find(IH(:)>=str2double(handles.post_thresh.String));
+kk=IH(:)>=str2double(handles.post_thresh.String);%logical array
 c1=zeros(size(IH));
 c1(kk)=1;
 c1b=regionprops(c1,'filledimage');
@@ -410,7 +405,7 @@ finish=clock;
 disp(['Total time: ',num2str(etime(finish,start)),' s']);
 
 
-function bin_width_Callback(hObject, eventdata, handles)
+function bin_width_Callback(hObject, eventdata, handles) %#ok<*INUSD>
 
 
 % --- Executes during object creation, after setting all properties.
@@ -466,7 +461,7 @@ function raw_bin_Callback(hObject, eventdata, handles)
 I_table=handles.uitable1.Data;%extract image files
 ii=find(cell2mat(I_table(:,end))==true);
 % w=str2double(handles.bin_width.String);%bin size in microns
-pathname=I_table(ii,1);%extract out pathnames of imported images
+pathname=I_table(ii,1);%#ok<NASGU> %extract out pathnames of imported images
 filename=I_table(ii,2);%extract out filenames of imported images
 n=size(filename,1);%number of files
 
@@ -524,11 +519,11 @@ coord=handles.bin_coord;
 ys=unique(coord(:,2));%get unique y coordinates
 ys=sort(ys,'ascend');%sort the y coordinates
 s2=interp1(ys,ys,s,'nearestneighbor');%find closest coordinate
-ii=find(coord(:,2)==s2);
+ii=coord(:,2)==s2;
 s_data=coord(ii,:);%extract out the sliced data
 scatter3(f1.s1,s_data(:,1),s_data(:,2),s_data(:,3),'filled',...
     'marker','o');
-xylabels(f1.s1,['x (\mum)'],['y (m)'],'fontweight','bold');
+xylabels(f1.s1,'x (\mum)','y (m)','fontweight','bold');
 zlabel(f1.s1,'Intensity (a.u.)');
 title(f1.s1,['Sliced data at y = ',num2str(s2),' \mum']);
 set(findall(f1.s1,'type','text'),'fontweight','bold');
@@ -543,11 +538,11 @@ coord=handles.bin_coord;
 xs=unique(coord(:,1));%get unique x coordinates
 xs=sort(xs,'ascend');%sort the x coordinates
 s2=interp1(xs,xs,s,'nearestneighbor');%find closest coordinate
-ii=find(coord(:,1)==s2);
+ii=coord(:,1)==s2;
 s_data=coord(ii,:);%extract out the sliced data
 scatter3(f1.s1,s_data(:,1),s_data(:,2),s_data(:,3),'filled',...
     'marker','o');
-xylabels(f1.s1,['x (\mum)'],['y (\mum)'],'fontweight','bold');
+xylabels(f1.s1,'x (\mum)','y (\mum)','fontweight','bold');
 zlabel(f1.s1,'Intensity (a.u.)');
 title(f1.s1,['Sliced data at x = ',num2str(s2),' \mum']);
 set(findall(f1.s1,'type','text'),'fontweight','bold');
@@ -718,7 +713,7 @@ axis(f2.s1,'image');
 set(f2.s1,'clim',[0 4095/str2double(handles.post_thresh.String)],...
     'xcolor','w','ycolor','w','zcolor','w');
 set(f1.s1,'zlim',f2.s1.ZLim,'clim',f2.s1.CLim);%make axis scaling the same
-xylabels(f2.s1,['x (\mum)'],['y (\mum)']);
+xylabels(f2.s1,'x (\mum)','y (\mum)');
 
 % Store the figure handles in the GUI handle structure
 handles.corr_bin_surf=f2;
@@ -797,11 +792,10 @@ flag=ones(size(raw,1),1);
 dum=1;
 while count<numel(flag)
     flag(dum)=nan;
-    kk=find(flag==1);
     D=abs(d0-d0(dum)).*flag;
     
     [~,ii]=nanmin(D);
-    index=[index;ii(1)];
+    index=cat(1,index,ii(1));
     dum=ii(1);
     count=count+1;
 end
@@ -834,6 +828,8 @@ try
             findall(handles.raw_bin_scatter.f,...
             'color','r','linestyle','none'),'visible','off');
     end
+catch
+    disp('Something is wrong with displaying the outline_c_Callback');
 end
 
 

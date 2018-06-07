@@ -72,20 +72,20 @@ for dum=1:n
         plane_initial(handles.din.IH.ii1)=0;
     end
     
-    % convert px coord to cartesian coord
+    % Convert px coord to cartesian coord
     res=I.info.UnknownTags(2).Value;%resolution um/px
     [x,y]=meshgrid(1:size(plane_initial,2),1:size(plane_initial,1));
     x=x.*res;%convert to real position in um
     y=y.*res;
     z1=plane_initial(:);%intensity values
     
-    %Perform distortion correction
+    % Perform distortion correction
     if flag==1% correct for distortions
         [x,y]=rm_distort(handles,x,y,res);
     end
     
-    % turn 2d array into column array
-    x=x(:); y=y(:); z1=z1(:);
+    % Turn 2d array into column array
+    [x,y]=prepareCurveData(x,y);
     
     % Performing binning of current image
     w=ceil(res);% bin based on the resolution of the image
@@ -136,7 +136,6 @@ for dum=1:n
             overlap_outline12(1)-xo+overlap_outline12(3));
         
         % Perform 2D zero normalized cross correlation
-        
         if flag4==false||handles.gpu.Value==0
             tic
             crrn=xcorr2(overlap2-mean(overlap2(:)),overlap1-mean(overlap1(:)));
@@ -149,7 +148,6 @@ for dum=1:n
             crrn=gather(crrn);%import gpuArray back to 2d array on workspace
             toc
         end
-        
         
         % Determine local region in crrn that is relevant (as defined by
         % TT)
@@ -235,14 +233,14 @@ for dum=1:n
         z1(handles.din.IH.ii2)=0;
     end
     
-    % Perform stitching
+    % Update x and y coordinates
     x=x+xpos;
     y=y+ypos;
     
-    ii2=find(z1>0);
-    x=x(ii2);
-    y=y(ii2);
-    z1=z1(ii2);
+    ii=z1>0;
+    x=x(ii);
+    y=y(ii);
+    z1=z1(ii);
     
     if flag==0||flag2==0
         handles.coord.(In)=[x(:) y(:) z1];
