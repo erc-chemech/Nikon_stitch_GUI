@@ -55,12 +55,12 @@ handles.din.IH.ii2=find(handles.din.IH.IH(:)<T2);%pxs indices defined by T2
 I_table=handles.uitable1.Data;%extract image files
 ii=find(cell2mat(I_table(:,end))==true);%index of images to stitch from table
 pathname=I_table(ii,1);%extract out pathnames of imported images
-filename=I_table(ii,2);%extract out filenames of imported images
-n=size(filename,1);%number of files
+filenames=I_table(ii,2);%extract out filenames of imported images
+n=size(filenames,1);%number of files
 
 for dum=1:n
     In=['I',num2str(dum)];
-    I=import_tiff_stack([pathname{dum},filename{dum}],1,...
+    I=import_tiff_stack([pathname{dum},filenames{dum}],1,...
         'skip',1,'silence',1);
     % Perform offset and flatfield correction
     if flag==0%no flat field correction

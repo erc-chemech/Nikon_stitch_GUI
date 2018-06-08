@@ -24,7 +24,7 @@ function varargout = Nikon_stitch(varargin)
 
 % Edit the above text to modify the response to help Nikon_stitch
 
-% Last Modified by GUIDE v2.5 04-May-2018 11:47:07
+% Last Modified by GUIDE v2.5 08-Jun-2018 09:21:03
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -283,7 +283,7 @@ n=size(filename,1);%number of files
 
 % Obtain useful user input parameters
 w=str2double(handles.post_bin.String);%get the bin size in um
-res=handles.uitable1.Data{1,6};%#ok<NASGU> %resolution of images
+res=handles.uitable1.Data{1,6};%resolution of images
 
 % Update the user on the status
 disp(['Stitching ',num2str(n),' images (corrected)']);
@@ -871,3 +871,8 @@ if handles.din.flag4==0
     hObject.Value=0;
     disp('Cannot use GPU accerlation. Prequisites are not met.');
 end
+
+
+% --- Executes on button press in process.
+function process_Callback(hObject, eventdata, handles)
+process_images;
