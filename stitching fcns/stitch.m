@@ -64,10 +64,10 @@ for dum=1:n
         'skip',1,'silence',1);
     % Perform offset and flatfield correction
     if flag==0%no flat field correction
-        plane_initial=I.tiff_stack-offset;
+        plane_initial=I.tiff_stack;
         plane_ffc=plane_initial;
     elseif flag==1%with flat field correction
-        plane_initial=(I.tiff_stack-offset)./handles.din.IH.IH;
+        plane_initial=(I.tiff_stack)./handles.din.IH.IH;
         plane_ffc=plane_initial;
         plane_initial(handles.din.IH.ii1)=0;
     end
