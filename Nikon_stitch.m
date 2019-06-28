@@ -69,9 +69,15 @@ handles.raw_bin_scatter.f=[];
 handles.corr_bin_scatter.f=[];
 handles.corr_bin_surf.f=[];
 handles.corr_no_bin.f=[];
-[dev,flag4]=gpu_check();%check for GPU capability
-handles.din.dev=dev;
-handles.din.flag4=flag4;
+try
+    [dev,flag4]=gpu_check();%check for GPU capability
+    handles.din.dev=dev;
+    handles.din.flag4=flag4;
+catch
+    disp('Something went wrong with the gpu_check fcn! Stitching will not use GPU.');
+    handles.din.dev=[];
+    handles.din.flag3=false;
+end
 
 % Update handles structure
 guidata(hObject, handles);
